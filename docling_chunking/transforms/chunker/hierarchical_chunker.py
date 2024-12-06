@@ -1,3 +1,12 @@
+#
+# Copyright IBM Corp. 2024 - 2024
+# SPDX-License-Identifier: MIT
+#
+
+"""Chunker implementation leveraging the document structure."""
+
+from __future__ import annotations
+
 import logging
 import re
 from typing import Any, ClassVar, Final, Iterator, Literal, Optional
@@ -6,6 +15,7 @@ from pandas import DataFrame
 from pydantic import Field, StringConstraints, field_validator
 from typing_extensions import Annotated
 
+from docling_chunking.search.package import VERSION_PATTERN
 from docling_chunking.transforms.chunker import BaseChunk, BaseChunker, BaseMeta
 from docling_chunking.types import DoclingDocument as DLDocument
 from docling_chunking.types.doc.document import (
@@ -19,6 +29,10 @@ from docling_chunking.types.doc.document import (
 )
 from docling_chunking.types.doc.labels import DocItemLabel
 
+_VERSION: Final = "1.0.0"
+
+_KEY_SCHEMA_NAME = "schema_name"
+_KEY_VERSION = "version"
 _KEY_DOC_ITEMS = "doc_items"
 _KEY_HEADINGS = "headings"
 _KEY_CAPTIONS = "captions"
@@ -30,6 +44,16 @@ _logger = logging.getLogger(__name__)
 class DocMeta(BaseMeta):
     """Data model for Hierarchical Chunker chunk metadata."""
 
+    schema_name: Literal["docling_chunking.transforms.chunker.DocMeta"] = Field(
+        default="docling_chunking.transforms.chunker.DocMeta",
+        alias=_KEY_SCHEMA_NAME,
+    )
+    version: Annotated[str, StringConstraints(pattern=VERSION_PATTERN, strict=True)] = (
+        Field(
+            default=_VERSION,
+            alias=_KEY_VERSION,
+        )
+    )
     doc_items: list[DocItem] = Field(
         alias=_KEY_DOC_ITEMS,
         min_length=1,
@@ -50,13 +74,34 @@ class DocMeta(BaseMeta):
     )
 
     excluded_embed: ClassVar[list[str]] = [
+        _KEY_SCHEMA_NAME,
+        _KEY_VERSION,
         _KEY_DOC_ITEMS,
         _KEY_ORIGIN,
     ]
     excluded_llm: ClassVar[list[str]] = [
+        _KEY_SCHEMA_NAME,
+        _KEY_VERSION,
         _KEY_DOC_ITEMS,
         _KEY_ORIGIN,
     ]
+
+    @field_validator(_KEY_VERSION)
+    @classmethod
+    def check_version_is_compatible(cls, v: str) -> str:
+        """Check if this meta item version is compatible with current version."""
+        current_match = re.match(VERSION_PATTERN, _VERSION)
+        doc_match = re.match(VERSION_PATTERN, v)
+        if (
+            doc_match is None
+            or current_match is None
+            or doc_match["major"] != current_match["major"]
+            or doc_match["minor"] > current_match["minor"]
+        ):
+            raise ValueError(f"incompatible version {v} with schema version {_VERSION}")
+        else:
+            return _VERSION
+
 
 class DocChunk(BaseChunk):
     """Data model for Hierarchical Chunker chunks."""
